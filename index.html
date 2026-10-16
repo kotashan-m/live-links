@@ -70,6 +70,7 @@ button.del{padding:6px 12px;border-radius:999px;border:1.5px solid #e5b8c4;backg
 .ghset .adminactions{margin-top:10px}
 .fullrow{display:flex;flex-direction:column;gap:4px;font-size:.8rem;color:var(--sub);margin-top:10px}
 .fullrow input{padding:8px 12px;border:1.5px solid var(--border);border-radius:10px;background:#fffdfa;color:var(--text);font-family:inherit;font-size:.95rem}
+.ghfixed{font-size:.82rem;color:var(--sub);margin:10px 0 0}
 .empty{padding:40px 16px;text-align:center;color:var(--sub)}
 footer{text-align:center;color:var(--sub);font-size:.8rem;padding:8px 16px 24px;letter-spacing:.15em}
 footer::before{content:"♡ ";color:var(--accent2)}
@@ -117,10 +118,7 @@ footer::after{content:" ♡";color:var(--accent2)}
       <p id="pubMsg" class="okmsg" hidden></p>
       <details class="ghset">
         <summary>GitHub接続設定(「GitHubへ公開」を使う場合)</summary>
-        <div class="formgrid">
-          <label>リポジトリ(owner/repo)<input id="ghRepo" type="text" placeholder="ユーザー名/live-links"></label>
-          <label>ブランチ<input id="ghBranch" type="text" placeholder="main"></label>
-        </div>
+        <p class="ghfixed">接続先リポジトリ:<strong>kotashan-m/live-links</strong> / ブランチ:<strong>main</strong>(固定)</p>
         <label class="fullrow">トークン(細かい権限のPAT)<input id="ghToken" type="password" placeholder="github_pat_…" autocomplete="off"></label>
         <div class="adminactions">
           <button id="ghSaveBtn" class="adminbtn" type="button">設定を保存</button>
@@ -421,14 +419,14 @@ document.getElementById('csvBtn').addEventListener('click', function () {
 
 // --- GitHub接続設定と直接公開 ---
 var LS_GH = 'liveLinksGithub';
+var GH_REPO = 'kotashan-m/live-links';
+var GH_BRANCH = 'main';
 
 function readGhCfg() {
   try { return JSON.parse(localStorage.getItem(LS_GH) || '{}'); } catch (e) { return {}; }
 }
 (function prefillGh() {
   var cfg = readGhCfg();
-  if (cfg.repo) document.getElementById('ghRepo').value = cfg.repo;
-  if (cfg.branch) document.getElementById('ghBranch').value = cfg.branch;
   if (cfg.token) document.getElementById('ghToken').value = cfg.token;
 })();
 
@@ -442,8 +440,6 @@ function setPubMsg(text, ok) {
 document.getElementById('ghSaveBtn').addEventListener('click', function () {
   try {
     localStorage.setItem(LS_GH, JSON.stringify({
-      repo: document.getElementById('ghRepo').value.trim(),
-      branch: document.getElementById('ghBranch').value.trim(),
       token: document.getElementById('ghToken').value.trim()
     }));
   } catch (e) {}
@@ -452,8 +448,6 @@ document.getElementById('ghSaveBtn').addEventListener('click', function () {
 
 document.getElementById('ghClearBtn').addEventListener('click', function () {
   try { localStorage.removeItem(LS_GH); } catch (e) {}
-  document.getElementById('ghRepo').value = '';
-  document.getElementById('ghBranch').value = '';
   document.getElementById('ghToken').value = '';
   setPubMsg('保存していた設定を削除しました', true);
 });
@@ -484,11 +478,8 @@ function ghApi(path, method, body, token) {
 }
 
 document.getElementById('pubBtn').addEventListener('click', function () {
-  var repo = document.getElementById('ghRepo').value.trim();
-  var branch = document.getElementById('ghBranch').value.trim() || 'main';
   var token = document.getElementById('ghToken').value.trim();
   if (!drafts.length) { setPubMsg('未公開のデータがありません', false); return; }
-  if (!/^[^\s/]+\/[^\s/]+$/.test(repo)) { setPubMsg('GitHub接続設定でリポジトリを owner/repo 形式で入力してください', false); return; }
   if (!token) { setPubMsg('GitHub接続設定でトークンを入力してください', false); return; }
 
   var btn = document.getElementById('pubBtn');
@@ -496,13 +487,13 @@ document.getElementById('pubBtn').addEventListener('click', function () {
   setPubMsg('GitHubへ送信中…', true);
   var b64 = b64utf8(buildCsvText());
 
-  ghApi('/repos/' + repo + '/contents/data.csv?ref=' + encodeURIComponent(branch), 'GET', null, token)
+  ghApi('/repos/' + GH_REPO + '/contents/data.csv?ref=' + encodeURIComponent(GH_BRANCH), 'GET', null, token)
     .then(function (info) { return info.sha; })
     .catch(function () { return null; })
     .then(function (sha) {
-      var body = { message: 'データ更新(未公開' + drafts.length + '件を公開)', content: b64, branch: branch };
+      var body = { message: 'データ更新(未公開' + drafts.length + '件を公開)', content: b64, branch: GH_BRANCH };
       if (sha) body.sha = sha;
-      return ghApi('/repos/' + repo + '/contents/data.csv', 'PUT', body, token);
+      return ghApi('/repos/' + GH_REPO + '/contents/data.csv', 'PUT', body, token);
     })
     .then(function () {
       state.rows = state.rows.concat(drafts.map(function (d) {
