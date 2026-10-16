@@ -43,8 +43,8 @@ td.stage{color:var(--sub)}
 .actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 a.watch{display:inline-block;padding:7px 16px;border-radius:999px;background:linear-gradient(135deg,#f78fa7,#e8748f);color:#fff;text-decoration:none;font-size:.85rem;white-space:nowrap;box-shadow:0 2px 6px rgba(232,116,143,.35)}
 a.watch:hover{opacity:.9}
-button.copy{padding:6px 14px;border-radius:999px;border:1.5px solid var(--accent2);background:#fff;color:var(--accent);font-size:.85rem;font-family:inherit;cursor:pointer;white-space:nowrap}
-button.copy:hover{background:var(--hover)}
+button.copy,button.edit{padding:6px 14px;border-radius:999px;border:1.5px solid var(--accent2);background:#fff;color:var(--accent);font-size:.85rem;font-family:inherit;cursor:pointer;white-space:nowrap}
+button.copy:hover,button.edit:hover{background:var(--hover)}
 .adminbox{border-style:dashed}
 .admintitle{margin:0 0 10px;font-weight:700;color:var(--accent)}
 .admintitle .linkbtn{margin-left:8px;font-weight:400}
@@ -121,6 +121,7 @@ footer::after{content:" ♡";color:var(--accent2)}
       </div>
       <div class="adminactions">
         <button id="addBtn" class="adminbtn" type="button">一覧に追加</button>
+        <button id="cancelBtn" class="linkbtn" type="button" hidden>編集をキャンセル</button>
         <button id="csvBtn" class="adminbtn" type="button">CSVをコピー</button>
         <button id="pubBtn" class="adminbtn primary" type="button">GitHubへ公開</button>
       </div>
@@ -168,8 +169,13 @@ var state = { rows: [], q: '', year: 'all', desc: true };
 // --- 管理モード用(未公開データとログイン状態) ---
 var ADMIN_PASS_HASH = '9cd3c6fa532580f3b355b1e94fed0d90282df515ce2dd009f29e4a9aca7ebd26';
 var LS_DRAFTS = 'liveLinksDrafts';
+var LS_EDITS = 'liveLinksEdits';
+var LS_DELETED = 'liveLinksDeleted';
 var SS_UNLOCKED = 'liveAdminUnlocked';
 var drafts = [];
+var edits = {};    // { 行番号: {date,title,stage,url} } 公開済み行の修正
+var deleted = {};  // { 行番号: true } 公開済み行の削除予定
+var editing = null; // {type:'draft'|'row', i:行番号} 編集中の行
 var isAdmin = false;
 
 function loadDrafts() {
@@ -178,13 +184,36 @@ function loadDrafts() {
 function saveDrafts() {
   try { localStorage.setItem(LS_DRAFTS, JSON.stringify(drafts)); } catch (e) {}
 }
+function loadEdits() {
+  try { edits = JSON.parse(localStorage.getItem(LS_EDITS) || '{}'); } catch (e) { edits = {}; }
+}
+function saveEdits() {
+  try { localStorage.setItem(LS_EDITS, JSON.stringify(edits)); } catch (e) {}
+}
+function loadDeleted() {
+  try { deleted = JSON.parse(localStorage.getItem(LS_DELETED) || '{}'); } catch (e) { deleted = {}; }
+}
+function saveDeleted() {
+  try { localStorage.setItem(LS_DELETED, JSON.stringify(deleted)); } catch (e) {}
+}
 function mergedRows() {
-  return state.rows.concat(drafts.map(function (d, i) {
-    return { date: d.date, title: d.title, stage: d.stage, url: d.url, draft: true, di: i };
-  }));
+  var out = [];
+  state.rows.forEach(function (r, i) {
+    if (deleted[i]) return;
+    var e = edits[i];
+    out.push(e
+      ? { date: e.date, title: e.title, stage: e.stage, url: e.url, draft: false, edited: true, ei: i }
+      : { date: r.date, title: r.title, stage: r.stage, url: r.url, draft: false, ei: i });
+  });
+  drafts.forEach(function (d, i) {
+    out.push({ date: d.date, title: d.title, stage: d.stage, url: d.url, draft: true, di: i });
+  });
+  return out;
 }
 
 loadDrafts();
+loadEdits();
+loadDeleted();
 if (sessionStorage.getItem(SS_UNLOCKED) === '1') isAdmin = true;
 
 function parseLine(line) {
@@ -247,8 +276,12 @@ function render() {
     return state.desc ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date);
   });
   document.getElementById('tbody').innerHTML = rows.map(function (r) {
-    var badge = r.draft ? '<span class="badge">未公開</span>' : '';
-    var del = (r.draft && isAdmin) ? '<button type="button" class="del" data-di="' + r.di + '">削除</button>' : '';
+    var badge = r.draft ? '<span class="badge">未公開</span>'
+      : (r.edited ? '<span class="badge">修正(未公開)</span>' : '');
+    var mg = isAdmin
+      ? '<button type="button" class="edit" data-ei="' + (r.ei != null ? r.ei : '') + '" data-di="' + (r.di != null ? r.di : '') + '">編集</button>' +
+        '<button type="button" class="del" data-ei="' + (r.ei != null ? r.ei : '') + '" data-di="' + (r.di != null ? r.di : '') + '">削除</button>'
+      : '';
     return '<tr>' +
       '<td class="date">' + esc(r.date) + '</td>' +
       '<td class="title">' + esc(r.title) + badge + '</td>' +
@@ -256,13 +289,19 @@ function render() {
       '<td><div class="actions">' +
       '<a class="watch" href="' + esc(r.url) + '" target="_blank" rel="noopener">視聴する</a>' +
       '<button type="button" class="copy" data-url="' + esc(r.url) + '">コピー</button>' +
-      del +
+      mg +
       '</div></td>' +
       '</tr>';
   }).join('');
   document.getElementById('empty').hidden = rows.length > 0;
   var draftCount = rows.filter(function (r) { return r.draft; }).length;
-  document.getElementById('count').textContent = rows.length + ' 件 / 全 ' + src.length + ' 件' + (draftCount ? '(未公開 ' + draftCount + ' 件)' : '');
+  var editCount = rows.filter(function (r) { return r.edited; }).length;
+  var delCount = Object.keys(deleted).length;
+  var extra = '';
+  if (draftCount) extra += '(未公開 ' + draftCount + ' 件)';
+  if (editCount) extra += '(修正 ' + editCount + ' 件)';
+  if (delCount) extra += '(削除予定 ' + delCount + ' 件)';
+  document.getElementById('count').textContent = rows.length + ' 件 / 全 ' + src.length + ' 件' + extra;
   document.getElementById('thDate').textContent = '日付 ' + (state.desc ? '▾' : '▴');
 }
 
@@ -279,13 +318,45 @@ document.getElementById('thDate').addEventListener('click', function () {
 document.getElementById('tbody').addEventListener('click', function (e) {
   var target = e.target;
   if (!target || !target.closest) return;
+
+  var editBtn = target.closest('.edit');
+  if (editBtn) {
+    var edi = editBtn.getAttribute('data-di');
+    var eei = editBtn.getAttribute('data-ei');
+    if (edi !== null && edi !== '') {
+      var d = drafts[Number(edi)];
+      if (!d) return;
+      editing = { type: 'draft', i: Number(edi) };
+      fillForm(d.date, d.title, d.stage, d.url);
+    } else {
+      var v = edits[Number(eei)] || state.rows[Number(eei)];
+      if (!v) return;
+      editing = { type: 'row', i: Number(eei) };
+      fillForm(v.date, v.title, v.stage, v.url);
+    }
+    document.getElementById('addBtn').textContent = '変更を保存';
+    document.getElementById('cancelBtn').hidden = false;
+    document.getElementById('fTitle').focus();
+    return;
+  }
+
   var del = target.closest('.del');
   if (del) {
-    drafts.splice(Number(del.getAttribute('data-di')), 1);
-    saveDrafts();
+    var ddi = del.getAttribute('data-di');
+    var dei = del.getAttribute('data-ei');
+    if (ddi !== null && ddi !== '') {
+      var idx = Number(ddi);
+      drafts.splice(idx, 1);
+      if (editing && editing.type === 'draft' && editing.i === idx) cancelEdit();
+      saveDrafts();
+    } else {
+      deleted[Number(dei)] = true;
+      saveDeleted();
+    }
     render();
     return;
   }
+
   var btn = target.closest('.copy');
   if (!btn) return;
   var url = btn.getAttribute('data-url');
@@ -371,9 +442,26 @@ document.getElementById('pw').addEventListener('keydown', function (e) {
 document.getElementById('logoutBtn').addEventListener('click', function () {
   isAdmin = false;
   sessionStorage.removeItem(SS_UNLOCKED);
+  cancelEdit();
   updateAdminViews();
   render();
 });
+
+function fillForm(date, title, stage, url) {
+  document.getElementById('fDate').value = date || '';
+  document.getElementById('fTitle').value = title || '';
+  document.getElementById('fStage').value = stage || '';
+  document.getElementById('fUrl').value = url || '';
+}
+
+function cancelEdit() {
+  editing = null;
+  fillForm('', '', '', '');
+  document.getElementById('addBtn').textContent = '一覧に追加';
+  document.getElementById('cancelBtn').hidden = true;
+}
+
+document.getElementById('cancelBtn').addEventListener('click', cancelEdit);
 
 document.getElementById('addBtn').addEventListener('click', function () {
   var date = document.getElementById('fDate').value;
@@ -384,11 +472,20 @@ document.getElementById('addBtn').addEventListener('click', function () {
     alert('日付・ライブ名・URL(http で始まる)は必須です');
     return;
   }
-  drafts.push({ date: date, title: title, stage: stage, url: url });
-  saveDrafts();
-  document.getElementById('fTitle').value = '';
-  document.getElementById('fStage').value = '';
-  document.getElementById('fUrl').value = '';
+  if (editing) {
+    if (editing.type === 'draft') {
+      drafts[editing.i] = { date: date, title: title, stage: stage, url: url };
+      saveDrafts();
+    } else {
+      edits[editing.i] = { date: date, title: title, stage: stage, url: url };
+      saveEdits();
+    }
+    cancelEdit();
+  } else {
+    drafts.push({ date: date, title: title, stage: stage, url: url });
+    saveDrafts();
+    fillForm('', '', '', '');
+  }
   state.q = '';
   state.year = 'all';
   document.getElementById('search').value = '';
@@ -403,8 +500,10 @@ function csvField(s) {
 
 function buildCsvText() {
   var lines = ['date,title,stage,url'];
-  state.rows.forEach(function (r) {
-    lines.push(csvField(r.date) + ',' + csvField(r.title) + ',' + csvField(r.stage) + ',' + csvField(r.url));
+  state.rows.forEach(function (r, i) {
+    if (deleted[i]) return;
+    var v = edits[i] || r;
+    lines.push(csvField(v.date) + ',' + csvField(v.title) + ',' + csvField(v.stage) + ',' + csvField(v.url));
   });
   drafts.forEach(function (d) {
     lines.push(csvField(d.date) + ',' + csvField(d.title) + ',' + csvField(d.stage) + ',' + csvField(d.url));
@@ -488,7 +587,10 @@ function ghApi(path, method, body, token) {
 
 document.getElementById('pubBtn').addEventListener('click', function () {
   var token = document.getElementById('ghToken').value.trim();
-  if (!drafts.length) { setPubMsg('未公開のデータがありません', false); return; }
+  var nAdd = drafts.length;
+  var nEdit = Object.keys(edits).length;
+  var nDel = Object.keys(deleted).length;
+  if (!nAdd && !nEdit && !nDel) { setPubMsg('未反映の変更がありません', false); return; }
   if (!token) { setPubMsg('GitHub接続設定でトークンを入力してください', false); return; }
 
   var btn = document.getElementById('pubBtn');
@@ -500,16 +602,24 @@ document.getElementById('pubBtn').addEventListener('click', function () {
     .then(function (info) { return info.sha; })
     .catch(function () { return null; })
     .then(function (sha) {
-      var body = { message: 'データ更新(未公開' + drafts.length + '件を公開)', content: b64, branch: GH_BRANCH };
+      var body = { message: 'データ更新(追加' + nAdd + '・修正' + nEdit + '・削除' + nDel + ')', content: b64, branch: GH_BRANCH };
       if (sha) body.sha = sha;
       return ghApi('/repos/' + GH_REPO + '/contents/data.csv', 'PUT', body, token);
     })
     .then(function () {
-      state.rows = state.rows.concat(drafts.map(function (d) {
-        return { date: d.date, title: d.title, stage: d.stage, url: d.url };
-      }));
+      var newRows = [];
+      state.rows.forEach(function (r, i) {
+        if (deleted[i]) return;
+        newRows.push(edits[i] || r);
+      });
+      state.rows = newRows;
       drafts = [];
+      edits = {};
+      deleted = {};
       saveDrafts();
+      saveEdits();
+      saveDeleted();
+      cancelEdit();
       buildYearChips();
       render();
       setPubMsg('公開しました ✓(サイトへの反映は1分ほどかかります)', true);
