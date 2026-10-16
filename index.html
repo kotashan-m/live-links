@@ -31,7 +31,6 @@ h1::after{content:"♡";color:var(--accent);margin-left:.35em}
 .chip.active{background:var(--accent);border-color:var(--accent);color:#fff}
 .count{color:var(--sub);font-size:.85rem;margin:0 0 8px}
 .tablewrap{background:var(--card);border:1px solid var(--border);border-radius:18px;overflow:hidden;box-shadow:0 3px 12px rgba(232,116,143,.08)}
-.tablescroll{overflow-x:auto}
 table{width:100%;border-collapse:collapse}
 th,td{padding:12px 14px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}
 thead th{font-size:.78rem;color:#c2798d;user-select:none;white-space:nowrap;border-bottom:2px solid var(--accent2);background:#fdf0f4}
@@ -39,7 +38,7 @@ th.sortable{cursor:pointer}
 tbody tr:hover td{background:var(--hover)}
 tbody tr:last-child td{border-bottom:none}
 td.date{white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--sub)}
-td.title{min-width:180px;font-weight:500}
+td.title{font-weight:500}
 td.stage{color:var(--sub)}
 .actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 a.watch{display:inline-block;padding:7px 16px;border-radius:999px;background:linear-gradient(135deg,#f78fa7,#e8748f);color:#fff;text-decoration:none;font-size:.85rem;white-space:nowrap;box-shadow:0 2px 6px rgba(232,116,143,.35)}
@@ -64,13 +63,19 @@ button.copy:hover{background:var(--hover)}
 .badge{display:inline-block;margin-left:6px;padding:2px 8px;border-radius:999px;background:#fff3cd;border:1px solid #eedc9a;color:#8a6d2f;font-size:.7rem;vertical-align:1px;font-weight:400}
 button.del{padding:6px 12px;border-radius:999px;border:1.5px solid #e5b8c4;background:#fff;color:#c2566e;font-family:inherit;font-size:.8rem;cursor:pointer;white-space:nowrap}
 @media (max-width:560px){.formgrid{grid-template-columns:1fr}}
+.okmsg{color:#3f9e6c;font-size:.85rem;margin:8px 0 0}
+.ghset{margin-top:14px}
+.ghset summary{cursor:pointer;font-size:.85rem;color:var(--sub)}
+.ghset .formgrid{margin-top:10px;margin-bottom:0}
+.ghset .adminactions{margin-top:10px}
+.fullrow{display:flex;flex-direction:column;gap:4px;font-size:.8rem;color:var(--sub);margin-top:10px}
+.fullrow input{padding:8px 12px;border:1.5px solid var(--border);border-radius:10px;background:#fffdfa;color:var(--text);font-family:inherit;font-size:.95rem}
 .empty{padding:40px 16px;text-align:center;color:var(--sub)}
 footer{text-align:center;color:var(--sub);font-size:.8rem;padding:8px 16px 24px;letter-spacing:.15em}
 footer::before{content:"♡ ";color:var(--accent2)}
 footer::after{content:" ♡";color:var(--accent2)}
 @media (max-width:560px){
   th,td{padding:9px 9px}
-  td.title{min-width:120px}
 }
 </style>
 </head>
@@ -105,9 +110,24 @@ footer::after{content:" ♡";color:var(--accent2)}
         <label>URL<input id="fUrl" type="url" placeholder="https://youtu.be/…"></label>
       </div>
       <div class="adminactions">
-        <button id="addBtn" class="adminbtn primary" type="button">一覧に追加</button>
+        <button id="addBtn" class="adminbtn" type="button">一覧に追加</button>
         <button id="csvBtn" class="adminbtn" type="button">CSVをコピー</button>
+        <button id="pubBtn" class="adminbtn primary" type="button">GitHubへ公開</button>
       </div>
+      <p id="pubMsg" class="okmsg" hidden></p>
+      <details class="ghset">
+        <summary>GitHub接続設定(「GitHubへ公開」を使う場合)</summary>
+        <div class="formgrid">
+          <label>リポジトリ(owner/repo)<input id="ghRepo" type="text" placeholder="ユーザー名/live-links"></label>
+          <label>ブランチ<input id="ghBranch" type="text" placeholder="main"></label>
+        </div>
+        <label class="fullrow">トークン(細かい権限のPAT)<input id="ghToken" type="password" placeholder="github_pat_…" autocomplete="off"></label>
+        <div class="adminactions">
+          <button id="ghSaveBtn" class="adminbtn" type="button">設定を保存</button>
+          <button id="ghClearBtn" class="linkbtn" type="button">トークンを削除</button>
+        </div>
+        <p class="adminnote">トークンはこのブラウザにのみ保存されます。GitHub の Settings → Developer settings → Fine-grained tokens で「対象リポジトリ1つ・Contents: Read and write」のみの権限で作成したものを使ってください。</p>
+      </details>
       <p class="adminnote">追加したデータは「未公開」としてこのブラウザにだけ保存されます。「CSVをコピー」→ GitHub の data.csv を全て貼り替えてコミットすると公開されます。</p>
     </div>
   </div>
@@ -374,7 +394,7 @@ function csvField(s) {
   return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 
-document.getElementById('csvBtn').addEventListener('click', function () {
+function buildCsvText() {
   var lines = ['date,title,stage,url'];
   state.rows.forEach(function (r) {
     lines.push(csvField(r.date) + ',' + csvField(r.title) + ',' + csvField(r.stage) + ',' + csvField(r.url));
@@ -382,7 +402,11 @@ document.getElementById('csvBtn').addEventListener('click', function () {
   drafts.forEach(function (d) {
     lines.push(csvField(d.date) + ',' + csvField(d.title) + ',' + csvField(d.stage) + ',' + csvField(d.url));
   });
-  var text = lines.join('\n') + '\n';
+  return lines.join('\n') + '\n';
+}
+
+document.getElementById('csvBtn').addEventListener('click', function () {
+  var text = buildCsvText();
   var b = document.getElementById('csvBtn');
   function done(ok) {
     b.textContent = ok ? 'コピーしました ✓' : 'コピー失敗';
@@ -393,6 +417,107 @@ document.getElementById('csvBtn').addEventListener('click', function () {
   } else {
     done(false);
   }
+});
+
+// --- GitHub接続設定と直接公開 ---
+var LS_GH = 'liveLinksGithub';
+
+function readGhCfg() {
+  try { return JSON.parse(localStorage.getItem(LS_GH) || '{}'); } catch (e) { return {}; }
+}
+(function prefillGh() {
+  var cfg = readGhCfg();
+  if (cfg.repo) document.getElementById('ghRepo').value = cfg.repo;
+  if (cfg.branch) document.getElementById('ghBranch').value = cfg.branch;
+  if (cfg.token) document.getElementById('ghToken').value = cfg.token;
+})();
+
+function setPubMsg(text, ok) {
+  var el = document.getElementById('pubMsg');
+  el.textContent = text;
+  el.className = ok ? 'okmsg' : 'pwerr';
+  el.hidden = !text;
+}
+
+document.getElementById('ghSaveBtn').addEventListener('click', function () {
+  try {
+    localStorage.setItem(LS_GH, JSON.stringify({
+      repo: document.getElementById('ghRepo').value.trim(),
+      branch: document.getElementById('ghBranch').value.trim(),
+      token: document.getElementById('ghToken').value.trim()
+    }));
+  } catch (e) {}
+  setPubMsg('設定を保存しました ✓', true);
+});
+
+document.getElementById('ghClearBtn').addEventListener('click', function () {
+  try { localStorage.removeItem(LS_GH); } catch (e) {}
+  document.getElementById('ghRepo').value = '';
+  document.getElementById('ghBranch').value = '';
+  document.getElementById('ghToken').value = '';
+  setPubMsg('保存していた設定を削除しました', true);
+});
+
+function b64utf8(s) {
+  var bytes = new TextEncoder().encode(s);
+  var bin = '';
+  for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+
+function ghApi(path, method, body, token) {
+  return fetch('https://api.github.com' + path, {
+    method: method,
+    headers: {
+      'Authorization': 'Bearer ' + token,
+      'Accept': 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'Content-Type': 'application/json'
+    },
+    body: body ? JSON.stringify(body) : undefined
+  }).then(function (res) {
+    return res.json().catch(function () { return {}; }).then(function (data) {
+      if (!res.ok) throw new Error((data && data.message) ? data.message : ('HTTP ' + res.status));
+      return data;
+    });
+  });
+}
+
+document.getElementById('pubBtn').addEventListener('click', function () {
+  var repo = document.getElementById('ghRepo').value.trim();
+  var branch = document.getElementById('ghBranch').value.trim() || 'main';
+  var token = document.getElementById('ghToken').value.trim();
+  if (!drafts.length) { setPubMsg('未公開のデータがありません', false); return; }
+  if (!/^[^\s/]+\/[^\s/]+$/.test(repo)) { setPubMsg('GitHub接続設定でリポジトリを owner/repo 形式で入力してください', false); return; }
+  if (!token) { setPubMsg('GitHub接続設定でトークンを入力してください', false); return; }
+
+  var btn = document.getElementById('pubBtn');
+  btn.disabled = true;
+  setPubMsg('GitHubへ送信中…', true);
+  var b64 = b64utf8(buildCsvText());
+
+  ghApi('/repos/' + repo + '/contents/data.csv?ref=' + encodeURIComponent(branch), 'GET', null, token)
+    .then(function (info) { return info.sha; })
+    .catch(function () { return null; })
+    .then(function (sha) {
+      var body = { message: 'データ更新(未公開' + drafts.length + '件を公開)', content: b64, branch: branch };
+      if (sha) body.sha = sha;
+      return ghApi('/repos/' + repo + '/contents/data.csv', 'PUT', body, token);
+    })
+    .then(function () {
+      state.rows = state.rows.concat(drafts.map(function (d) {
+        return { date: d.date, title: d.title, stage: d.stage, url: d.url };
+      }));
+      drafts = [];
+      saveDrafts();
+      buildYearChips();
+      render();
+      setPubMsg('公開しました ✓(サイトへの反映は1分ほどかかります)', true);
+    })
+    .catch(function (e) {
+      setPubMsg('公開に失敗しました:' + e.message, false);
+    })
+    .then(function () { btn.disabled = false; });
 });
 
 fetch('data.csv')
