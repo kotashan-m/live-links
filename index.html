@@ -46,6 +46,24 @@ a.watch{display:inline-block;padding:7px 16px;border-radius:999px;background:lin
 a.watch:hover{opacity:.9}
 button.copy{padding:6px 14px;border-radius:999px;border:1.5px solid var(--accent2);background:#fff;color:var(--accent);font-size:.85rem;font-family:inherit;cursor:pointer;white-space:nowrap}
 button.copy:hover{background:var(--hover)}
+.adminbox{border-style:dashed}
+.admintitle{margin:0 0 10px;font-weight:700;color:var(--accent)}
+.admintitle .linkbtn{margin-left:8px;font-weight:400}
+.loginrow{display:flex;gap:8px}
+.loginrow .search{flex:1}
+.adminbtn{padding:8px 16px;border-radius:999px;border:1.5px solid var(--accent2);background:#fff;color:var(--accent);font-family:inherit;font-size:.85rem;cursor:pointer;white-space:nowrap}
+.adminbtn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+.adminbtn:hover{opacity:.85}
+.pwerr{color:#d64562;font-size:.85rem;margin:8px 0 0}
+.formgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+.formgrid label{display:flex;flex-direction:column;gap:4px;font-size:.8rem;color:var(--sub)}
+.formgrid input{padding:8px 12px;border:1.5px solid var(--border);border-radius:10px;background:#fffdfa;color:var(--text);font-family:inherit;font-size:.95rem}
+.adminactions{display:flex;gap:8px;flex-wrap:wrap}
+.adminnote{font-size:.78rem;color:var(--sub);margin:12px 0 0;line-height:1.6}
+.linkbtn{background:none;border:none;color:var(--sub);font-family:inherit;font-size:.8rem;cursor:pointer;text-decoration:underline;padding:0}
+.badge{display:inline-block;margin-left:6px;padding:2px 8px;border-radius:999px;background:#fff3cd;border:1px solid #eedc9a;color:#8a6d2f;font-size:.7rem;vertical-align:1px;font-weight:400}
+button.del{padding:6px 12px;border-radius:999px;border:1.5px solid #e5b8c4;background:#fff;color:#c2566e;font-family:inherit;font-size:.8rem;cursor:pointer;white-space:nowrap}
+@media (max-width:560px){.formgrid{grid-template-columns:1fr}}
 .empty{padding:40px 16px;text-align:center;color:var(--sub)}
 footer{text-align:center;color:var(--sub);font-size:.8rem;padding:8px 16px 24px;letter-spacing:.15em}
 footer::before{content:"♡ ";color:var(--accent2)}
@@ -69,6 +87,31 @@ footer::after{content:" ♡";color:var(--accent2)}
     <div id="years" class="chips"></div>
   </div>
 
+  <div id="adminBox" class="panel adminbox" hidden>
+    <div id="loginWrap">
+      <p class="admintitle">🔐 管理</p>
+      <div class="loginrow">
+        <input id="pw" class="search" type="password" placeholder="パスワード" autocomplete="current-password">
+        <button id="loginBtn" class="adminbtn" type="button">ログイン</button>
+      </div>
+      <p id="pwErr" class="pwerr" hidden>パスワードが違います</p>
+    </div>
+    <div id="adminWrap" hidden>
+      <p class="admintitle">🔐 管理モード<button id="logoutBtn" class="linkbtn" type="button">ログアウト</button></p>
+      <div class="formgrid">
+        <label>日付<input id="fDate" type="date"></label>
+        <label>ライブ名<input id="fTitle" type="text" placeholder="TIF2026 など"></label>
+        <label>ステージ<input id="fStage" type="text" placeholder="SMILE GARDEN など"></label>
+        <label>URL<input id="fUrl" type="url" placeholder="https://youtu.be/…"></label>
+      </div>
+      <div class="adminactions">
+        <button id="addBtn" class="adminbtn primary" type="button">一覧に追加</button>
+        <button id="csvBtn" class="adminbtn" type="button">CSVをコピー</button>
+      </div>
+      <p class="adminnote">追加したデータは「未公開」としてこのブラウザにだけ保存されます。「CSVをコピー」→ GitHub の data.csv を全て貼り替えてコミットすると公開されます。</p>
+    </div>
+  </div>
+
   <p class="count" id="count"></p>
 
   <div class="tablewrap">
@@ -88,12 +131,34 @@ footer::after{content:" ♡";color:var(--accent2)}
     <div id="empty" class="empty" hidden>該当するデータがありません</div>
   </div>
 </main>
-<footer>ライブ動画リンク集</footer>
+<footer>ライブ動画リンク集 <button id="adminToggle" class="linkbtn" type="button">管理</button></footer>
 
 <script>
 'use strict';
 
 var state = { rows: [], q: '', year: 'all', desc: true };
+
+// --- 管理モード用(未公開データとログイン状態) ---
+var ADMIN_PASS_HASH = '9cd3c6fa532580f3b355b1e94fed0d90282df515ce2dd009f29e4a9aca7ebd26';
+var LS_DRAFTS = 'liveLinksDrafts';
+var SS_UNLOCKED = 'liveAdminUnlocked';
+var drafts = [];
+var isAdmin = false;
+
+function loadDrafts() {
+  try { drafts = JSON.parse(localStorage.getItem(LS_DRAFTS) || '[]'); } catch (e) { drafts = []; }
+}
+function saveDrafts() {
+  try { localStorage.setItem(LS_DRAFTS, JSON.stringify(drafts)); } catch (e) {}
+}
+function mergedRows() {
+  return state.rows.concat(drafts.map(function (d, i) {
+    return { date: d.date, title: d.title, stage: d.stage, url: d.url, draft: true, di: i };
+  }));
+}
+
+loadDrafts();
+if (sessionStorage.getItem(SS_UNLOCKED) === '1') isAdmin = true;
 
 function parseLine(line) {
   var out = [], cur = '', inQ = false;
@@ -122,7 +187,7 @@ function esc(s) {
 
 function buildYearChips() {
   var years = [];
-  state.rows.forEach(function (r) {
+  mergedRows().forEach(function (r) {
     var y = r.date.slice(0, 4);
     if (/^\d{4}$/.test(y) && years.indexOf(y) === -1) years.push(y);
   });
@@ -145,7 +210,8 @@ function buildYearChips() {
 
 function render() {
   var q = state.q.toLowerCase();
-  var rows = state.rows.filter(function (r) {
+  var src = mergedRows();
+  var rows = src.filter(function (r) {
     var yearOk = state.year === 'all' || r.date.slice(0, 4) === state.year;
     var textOk = !q || (r.title + ' ' + r.stage + ' ' + r.url + ' ' + r.date).toLowerCase().indexOf(q) !== -1;
     return yearOk && textOk;
@@ -154,18 +220,22 @@ function render() {
     return state.desc ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date);
   });
   document.getElementById('tbody').innerHTML = rows.map(function (r) {
+    var badge = r.draft ? '<span class="badge">未公開</span>' : '';
+    var del = (r.draft && isAdmin) ? '<button type="button" class="del" data-di="' + r.di + '">削除</button>' : '';
     return '<tr>' +
       '<td class="date">' + esc(r.date) + '</td>' +
-      '<td class="title">' + esc(r.title) + '</td>' +
+      '<td class="title">' + esc(r.title) + badge + '</td>' +
       '<td class="stage">' + esc(r.stage) + '</td>' +
       '<td><div class="actions">' +
       '<a class="watch" href="' + esc(r.url) + '" target="_blank" rel="noopener">視聴する</a>' +
       '<button type="button" class="copy" data-url="' + esc(r.url) + '">コピー</button>' +
+      del +
       '</div></td>' +
       '</tr>';
   }).join('');
   document.getElementById('empty').hidden = rows.length > 0;
-  document.getElementById('count').textContent = rows.length + ' 件 / 全 ' + state.rows.length + ' 件';
+  var draftCount = rows.filter(function (r) { return r.draft; }).length;
+  document.getElementById('count').textContent = rows.length + ' 件 / 全 ' + src.length + ' 件' + (draftCount ? '(未公開 ' + draftCount + ' 件)' : '');
   document.getElementById('thDate').textContent = '日付 ' + (state.desc ? '▾' : '▴');
 }
 
@@ -180,7 +250,16 @@ document.getElementById('thDate').addEventListener('click', function () {
 });
 
 document.getElementById('tbody').addEventListener('click', function (e) {
-  var btn = e.target && e.target.closest ? e.target.closest('.copy') : null;
+  var target = e.target;
+  if (!target || !target.closest) return;
+  var del = target.closest('.del');
+  if (del) {
+    drafts.splice(Number(del.getAttribute('data-di')), 1);
+    saveDrafts();
+    render();
+    return;
+  }
+  var btn = target.closest('.copy');
   if (!btn) return;
   var url = btn.getAttribute('data-url');
 
@@ -206,6 +285,113 @@ document.getElementById('tbody').addEventListener('click', function (e) {
     navigator.clipboard.writeText(url).then(function () { done(true); }, fallback);
   } else {
     fallback();
+  }
+});
+
+// --- 管理モード:ログインとフォーム ---
+function sha256hex(text) {
+  return crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)).then(function (buf) {
+    return Array.prototype.map.call(new Uint8Array(buf), function (b) {
+      return ('0' + b.toString(16)).slice(-2);
+    }).join('');
+  });
+}
+
+function updateAdminViews() {
+  document.getElementById('loginWrap').hidden = isAdmin;
+  document.getElementById('adminWrap').hidden = !isAdmin;
+}
+
+document.getElementById('adminToggle').addEventListener('click', function () {
+  var box = document.getElementById('adminBox');
+  box.hidden = !box.hidden;
+  if (!box.hidden) {
+    updateAdminViews();
+    if (!isAdmin) document.getElementById('pw').focus();
+  }
+});
+
+function tryLogin() {
+  var pwEl = document.getElementById('pw');
+  var err = document.getElementById('pwErr');
+  if (!window.crypto || !crypto.subtle) {
+    err.textContent = 'この環境では管理モードを使えません(GitHub Pages 上でお試しください)';
+    err.hidden = false;
+    return;
+  }
+  sha256hex(pwEl.value).then(function (h) {
+    if (h === ADMIN_PASS_HASH) {
+      isAdmin = true;
+      sessionStorage.setItem(SS_UNLOCKED, '1');
+      pwEl.value = '';
+      err.hidden = true;
+      updateAdminViews();
+      render();
+    } else {
+      err.textContent = 'パスワードが違います';
+      err.hidden = false;
+      pwEl.value = '';
+      pwEl.focus();
+    }
+  });
+}
+
+document.getElementById('loginBtn').addEventListener('click', tryLogin);
+document.getElementById('pw').addEventListener('keydown', function (e) {
+  if (e.key === 'Enter') tryLogin();
+});
+
+document.getElementById('logoutBtn').addEventListener('click', function () {
+  isAdmin = false;
+  sessionStorage.removeItem(SS_UNLOCKED);
+  updateAdminViews();
+  render();
+});
+
+document.getElementById('addBtn').addEventListener('click', function () {
+  var date = document.getElementById('fDate').value;
+  var title = document.getElementById('fTitle').value.trim();
+  var stage = document.getElementById('fStage').value.trim();
+  var url = document.getElementById('fUrl').value.trim();
+  if (!date || !title || !/^https?:\/\//.test(url)) {
+    alert('日付・ライブ名・URL(http で始まる)は必須です');
+    return;
+  }
+  drafts.push({ date: date, title: title, stage: stage, url: url });
+  saveDrafts();
+  document.getElementById('fTitle').value = '';
+  document.getElementById('fStage').value = '';
+  document.getElementById('fUrl').value = '';
+  state.q = '';
+  state.year = 'all';
+  document.getElementById('search').value = '';
+  buildYearChips();
+  render();
+});
+
+function csvField(s) {
+  s = String(s || '');
+  return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+document.getElementById('csvBtn').addEventListener('click', function () {
+  var lines = ['date,title,stage,url'];
+  state.rows.forEach(function (r) {
+    lines.push(csvField(r.date) + ',' + csvField(r.title) + ',' + csvField(r.stage) + ',' + csvField(r.url));
+  });
+  drafts.forEach(function (d) {
+    lines.push(csvField(d.date) + ',' + csvField(d.title) + ',' + csvField(d.stage) + ',' + csvField(d.url));
+  });
+  var text = lines.join('\n') + '\n';
+  var b = document.getElementById('csvBtn');
+  function done(ok) {
+    b.textContent = ok ? 'コピーしました ✓' : 'コピー失敗';
+    setTimeout(function () { b.textContent = 'CSVをコピー'; }, 1500);
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); });
+  } else {
+    done(false);
   }
 });
 
