@@ -76,7 +76,16 @@ footer{text-align:center;color:var(--sub);font-size:.8rem;padding:8px 16px 24px;
 footer::before{content:"♡ ";color:var(--accent2)}
 footer::after{content:" ♡";color:var(--accent2)}
 @media (max-width:560px){
-  th,td{padding:9px 9px}
+  thead{display:none}
+  tbody tr{display:block;padding:12px 12px 8px;border-bottom:1px dashed var(--border)}
+  tbody tr:last-child{border-bottom:none}
+  tbody tr:hover td{background:transparent}
+  tbody td{display:block;width:auto;padding:2px 0;border-bottom:none}
+  td.date{font-size:.78rem;letter-spacing:.05em}
+  td.title{font-size:1rem;overflow-wrap:break-word}
+  td.stage{font-size:.85rem}
+  td.stage::before{content:"ステージ";color:var(--accent2);font-size:.72rem;margin-right:6px}
+  td:last-child{margin-top:8px}
 }
 </style>
 </head>
